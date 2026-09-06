@@ -33,11 +33,11 @@ const chart = LightweightCharts.createChart(document.getElementById('chart'), {
   timeScale: { borderColor:'#2a2e39', timeVisible:false },
   crosshair: { mode: 0 },
 });
-const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
+const candleSeries = chart.addCandlestickSeries({
   upColor:'#26a69a', downColor:'#ef5350', borderVisible:false, wickUpColor:'#26a69a', wickDownColor:'#ef5350',
 });
 // 笔 (bi) 作为折线
-const biSeries = chart.addSeries(LightweightCharts.LineSeries, { color:'#58a6ff', lineWidth:2, priceLineVisible:false, lastValueVisible:false });
+const biSeries = chart.addLineSeries({ color:'#58a6ff', lineWidth:2, priceLineVisible:false, lastValueVisible:false });
 // 中枢 (zs) 用 MARKERS 或自定义 —— v4 用创建 series + markers 过于复杂，这里用 price lines 标上下沿
 let zsLines = [];
 
