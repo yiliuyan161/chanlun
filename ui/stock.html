@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>缠论 — 股票</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:#131722; font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; color:#d1d4dc; }
+  .top { display:flex; align-items:center; gap:16px; padding:12px 20px; border-bottom:1px solid #2a2e39; background:#1c2030; }
+  .top a { color:#58a6ff; text-decoration:none; font-size:14px; }
+  .top h1 { font-size:18px; }
+  .top .name { color:#8b949e; font-size:14px; }
+  #chart { width:100%; height:calc(100vh - 58px); }
+  .zs-label { font-size:10px; color:#ffd700; pointer-events:none; }
+</style>
+</head>
+<body>
+<div class="top">
+  <a href="/">← 返回</a>
+  <h1 id="sym">加载中…</h1>
+  <span class="name" id="name"></span>
+</div>
+<div id="chart"></div>
+
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+const symbol = location.pathname.split('/').pop();
+const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+  layout: { background:{type:'solid',color:'#131722'}, textColor:'#d1d4dc' },
+  grid: { vertLines:{color:'#1e222d'}, horzLines:{color:'#1e222d'} },
+  rightPriceScale: { borderColor:'#2a2e39' },
+  timeScale: { borderColor:'#2a2e39', timeVisible:false },
+  crosshair: { mode: 0 },
+});
+const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
+  upColor:'#26a69a', downColor:'#ef5350', borderVisible:false, wickUpColor:'#26a69a', wickDownColor:'#ef5350',
+});
+// 笔 (bi) 作为折线
+const biSeries = chart.addSeries(LightweightCharts.LineSeries, { color:'#58a6ff', lineWidth:2, priceLineVisible:false, lastValueVisible:false });
+// 中枢 (zs) 用 MARKERS 或自定义 —— v4 用创建 series + markers 过于复杂，这里用 price lines 标上下沿
+let zsLines = [];
+
+async function init() {
+  try {
+    const r = await fetch(`/api/kline/${symbol}?limit=1500`);
+    if (!r.ok) { alert('股票不存在或加载失败'); return; }
+    const data = await r.json();
+    document.getElementById('sym').textContent = data.symbol;
+    // 名称从 symbols 列表补 (可选)
+    candleSeries.setData(data.klines);
+    if (data.bis && data.bis.length) {
+      // 每笔的端点 → 折线点 (时间→价格)
+      const pts = [];
+      data.bis.forEach(b => {
+        pts.push({ time: b.sdt, value: b.direction === 'Up' ? b.low : b.high });
+        pts.push({ time: b.edt, value: b.direction === 'Up' ? b.high : b.low });
+      });
+      biSeries.setData(pts);
+    }
+    if (data.zs && data.zs.length) {
+      data.zs.forEach(z => {
+        // 用 createPriceLine 画中枢上下沿 (需要对应时间的价格线) —— v4 简化：画在首日
+        // 更稳妥: 用 series 的 markers? 不用。改用原始 price line 於 chart 上不绑定时间。
+        // 这里简单做法: 用 canvas 不可行，改用 lightweight-charts 的 "createSeriesMarkers" 不可行。
+        // 直接用折线系列绘制中枢矩形上下沿区间段 —— 简化: 画 zg 与 zd 两条贯穿线
+        candleSeries.createPriceLine({ price: z.zg, color:'#ffd700', lineWidth:1, lineStyle:LightweightCharts.LineStyle.Dashed, axisLabelVisible:true, title:'ZG' });
+        candleSeries.createPriceLine({ price: z.zd, color:'#ffd700', lineWidth:1, lineStyle:LightweightCharts.LineStyle.Dashed, axisLabelVisible:true, title:'ZD' });
+      });
+    }
+    chart.timeScale().fitContent();
+  } catch (e) { console.error(e); }
+}
+init();
+</script>
+</body>
+</html>

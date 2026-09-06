@@ -1,0 +1,4 @@
+aiohttp>=3.9,<4
+czsc>=1.0,<2
+duckdb>=1.1,<2
+pandas>=2.2,<4
