@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>primitive test</title></head>
+<body style="background:#131722">
+<div id="c" style="width:800px;height:400px"></div>
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script src="/chan-primitives.js"></script>
+<script>
+const chart = LightweightCharts.createChart(document.getElementById('c'), {layout:{background:{type:'solid',color:'#131722'}}});
+const s = chart.addCandlestickSeries();
+const bars = [];
+for (let i=0;i<30;i++){
+  const o=100+i*0.5, c=o+(i%3?2:-2), h=Math.max(o,c)+1, l=Math.min(o,c)-1;
+  bars.push({time:'2024-01-'+(String(i+1).padStart(2,'0')), open:o, high:h, low:l, close:c});
+}
+s.setData(bars);
+const zones = [{sdt:'2024-01-05', edt:'2024-01-15', zg:104, zd:98}];
+window.__prim = new ZsRectanglePrimitive(s, zones, chart);
+s.attachPrimitive(window.__prim);
+setTimeout(()=>{
+  const p = window.__prim;
+  console.log('paneViews:', p.paneViews().length, 'renderer:', typeof p.paneViews()[0].renderer());
+  console.log('draw fn len:', p.paneViews()[0].renderer().draw.toString().length);
+  chart.timeScale().fitContent();
+}, 500);
+</script>
+</body>
+</html>

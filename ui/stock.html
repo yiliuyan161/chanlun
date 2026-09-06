@@ -23,7 +23,7 @@
 <div id="chart"></div>
 
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/chan-primitives.js"></script>
+<script src="/chan-primitives.js?v=4"></script>
 <script>
 const symbol = location.pathname.split('/').pop();
 const container = document.getElementById('chart');
@@ -81,10 +81,10 @@ async function init() {
       biSeries.setData(pts);
     }
 
-    // 中枢矩形 — 官方 primitive API
+    // 中枢矩形 — 官方 primitive API (v4 需显式传 chart)
     if (data.zs && data.zs.length) {
       const zones = data.zs.map(z => ({ sdt:z.sdt, edt:z.edt, zg:z.zg, zd:z.zd }));
-      candleSeries.attachPrimitive(new ZsRectanglePrimitive(candleSeries, zones));
+      candleSeries.attachPrimitive(new ZsRectanglePrimitive(candleSeries, zones, chart));
     }
 
     // 买卖点 markers

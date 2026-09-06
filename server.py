@@ -155,6 +155,10 @@ async def handle_primitive_js(request: web.Request) -> web.FileResponse:
     return web.FileResponse(os.path.join(os.path.dirname(__file__), "ui", "chan-primitives.js"))
 
 
+async def handle_test_primitive(request: web.Request) -> web.FileResponse:
+    return web.FileResponse(os.path.join(os.path.dirname(__file__), "ui", "test-primitive.html"))
+
+
 async def handle_search(request: web.Request) -> web.Response:
     q = request.query.get("q", "").strip()
     if not q:
@@ -209,6 +213,7 @@ def build_app() -> web.Application:
     app.router.add_get("/api/symbols", handle_symbols)
     app.router.add_get("/api/kline/{thscode}", handle_kline)
     app.router.add_get("/chan-primitives.js", handle_primitive_js)
+    app.router.add_get("/test-primitive", handle_test_primitive)
     return app
 
 
