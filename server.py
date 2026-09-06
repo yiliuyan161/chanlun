@@ -144,11 +144,15 @@ def chanlun_json(c: CZSC) -> dict:
 
 
 async def handle_index(request: web.Request) -> web.FileResponse:
-    return web.FileResponse(os.path.join(os.path.dirname(__file__), "ui", "index.html"))
+    resp = web.FileResponse(os.path.join(os.path.dirname(__file__), "ui", "index.html"))
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
 
 
 async def handle_stock(request: web.Request) -> web.FileResponse:
-    return web.FileResponse(os.path.join(os.path.dirname(__file__), "ui", "stock.html"))
+    resp = web.FileResponse(os.path.join(os.path.dirname(__file__), "ui", "stock.html"))
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
 
 
 async def handle_primitive_js(request: web.Request) -> web.FileResponse:

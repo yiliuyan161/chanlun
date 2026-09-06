@@ -60,11 +60,6 @@
   /* 图表容器 */
   #wrap { position:relative; height:calc(100% - 46px); }
   #chart { position:absolute; inset:0; }
-  /* 周期条 (底部, 仿TV) */
-  .tf-bar { position:absolute; bottom:0; left:50%; transform:translateX(-50%); display:flex; gap:2px; background:var(--bg2); border:1px solid var(--border); border-radius:6px; padding:2px; z-index:20; }
-  .tf-bar .tf { padding:3px 10px; font-size:11px; border-radius:4px; cursor:pointer; color:var(--text2); }
-  .tf-bar .tf.active { background:var(--accent); color:#fff; }
-  .tf-bar .tf:hover:not(.active) { background:var(--panel); color:var(--text); }
   /* scrollbar */
   .modal-list::-webkit-scrollbar { width:6px; } .modal-list::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
 </style>
@@ -102,7 +97,6 @@
 <div id="wrap">
   <div id="chart"></div>
   <div class="loadmask" id="loadmask"><div class="spinner"></div></div>
-  <div class="tf-bar"><span class="tf active" data-tf="daily">日线</span><span class="tf" data-tf="weekly">周线</span><span class="tf" data-tf="monthly">月线</span></div>
 </div>
 
 <!-- 搜索弹窗 -->
@@ -117,7 +111,7 @@
 </div>
 
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-<script src="/chan-primitives.js?v=4"></script>
+<script src="/chan-primitives.js?v=5"></script>
 <script>
 /* ═════════════════ 状态 ═════════════════ */
 const state = {
@@ -287,15 +281,6 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && modal.clas
 document.getElementById('btnFull').addEventListener('click', () => {
   if (document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen();
-});
-
-/* ═════════════════ 周期切换 (预留) ═════════════════ */
-document.querySelectorAll('.tf-bar .tf').forEach(el => {
-  el.addEventListener('click', () => {
-    document.querySelectorAll('.tf-bar .tf').forEach(x => x.classList.remove('active'));
-    el.classList.add('active');
-    state.tf = el.dataset.tf;
-  });
 });
 
 /* ═════════════════ 启动 ═════════════════ */
