@@ -46,9 +46,9 @@ class ZsRenderer {
         ctx.strokeRect(X, Y, W, H);
         // ZG / ZD 标签
         ctx.fillStyle = 'rgba(255,215,0,0.95)';
-        ctx.font = `${Math.floor(10 * hr)}px sans-serif`;
-        ctx.fillText('ZG ' + z.zg.toFixed(2), X + 3 * hr, Math.max(Y - 3 * vr, 10 * vr));
-        ctx.fillText('ZD ' + z.zd.toFixed(2), X + 3 * hr, Y + H + 10 * vr);
+        ctx.font = `bold ${Math.floor(13 * hr)}px sans-serif`;
+        ctx.fillText('ZG ' + z.zg.toFixed(2), X + 4 * hr, Math.max(Y - 6 * vr, 12 * vr));
+        ctx.fillText('ZD ' + z.zd.toFixed(2), X + 4 * hr, Y + H + 14 * vr);
       }
       ctx.restore();
     });
