@@ -116,7 +116,6 @@
 /* ═════════════════ 状态 ═════════════════ */
 const state = {
   symbol: decodeURIComponent(location.pathname.split('/').pop() || ''),
-  tf: 'daily',
   lastPrimitive: null,   // 当前附着的中枢 primitive
   symbols: [],           // 全量标的名录
 };
@@ -141,60 +140,96 @@ chart.priceScale('vol').applyOptions({ scaleMargins:{ top:0.84, bottom:0 } });
 
 const MARK_COLORS = { buy1:'#26a69a', buy2:'#2ecc71', buy3:'#00e5ff', sell1:'#ef5350', sell2:'#ff7043', sell3:'#ffd700' };
 
-/* ═════════════════ 动态加载 (切换标的) ═════════════════ */
-async function loadSymbol(sym) {
+/* ═════════════════ 分页加载 + 向前翻页 ═════════════════ */
+const PAGE = 800;        // 每页K线数
+let allKlines = [];      // 已加载的全部K线 (按时间升序, 前端累积)
+let allBis = [], allZs = [], allPoints = [];  // 各窗口的笔/中枢/买卖点累积
+let nextStart = null;    // 下一页光标 (最早日期的前一天)
+let loadingMore = false;
+let firstLoadDone = false;
+
+function renderChart(k, bis, zs, points) {
+  candleSeries.setData(k);
+  volumeSeries.setData(k.map((bar,i) => {
+    const prev = i>0 ? k[i-1] : null;
+    const up = !prev || bar.close >= prev.close;
+    return { time:bar.time, value:bar.vol || 0, color: up ? 'rgba(38,166,154,0.4)' : 'rgba(239,83,80,0.4)' };
+  }));
+  biSeries.setData([]);
+  candleSeries.setMarkers([]);
+  if (state.lastPrimitive) { candleSeries.detachPrimitive(state.lastPrimitive); state.lastPrimitive = null; }
+  if (bis && bis.length) {
+    const pts = []; let lastT = null;
+    bis.forEach(b => {
+      const isUp = String(b.direction).includes('向上');
+      const sP = isUp ? b.low : b.high, eP = isUp ? b.high : b.low;
+      if (b.sdt !== lastT) pts.push({ time:b.sdt, value:sP });
+      pts.push({ time:b.edt, value:eP }); lastT = b.edt;
+    });
+    biSeries.setData(pts);
+  }
+  if (zs && zs.length) {
+    const zones = zs.map(z => ({ sdt:z.sdt, edt:z.edt, zg:z.zg, zd:z.zd }));
+    state.lastPrimitive = new ZsRectanglePrimitive(candleSeries, zones, chart);
+    candleSeries.attachPrimitive(state.lastPrimitive);
+  }
+  if (points && points.length) {
+    candleSeries.setMarkers(points.map(p => ({
+      time:p.time, position:p.type.startsWith('buy') ? 'belowBar' : 'aboveBar',
+      color:MARK_COLORS[p.type] || '#fff',
+      shape:p.type.startsWith('buy') ? 'arrowUp' : 'arrowDown', text:p.label,
+    })));
+  }
+}
+
+async function loadSymbol(sym, isAppend = false) {
   state.symbol = sym;
-  document.getElementById('loadmask').classList.add('on');
+  if (!isAppend) document.getElementById('loadmask').classList.add('on');
   try {
-    const r = await fetch(`/api/kline/${encodeURIComponent(sym)}?limit=1500`);
+    const url = isAppend && nextStart
+      ? `/api/kline/${encodeURIComponent(sym)}?limit=${PAGE}&end_date=${nextStart}`
+      : `/api/kline/${encodeURIComponent(sym)}?limit=${PAGE}`;
+    const r = await fetch(url);
     if (!r.ok) { alert('加载失败: ' + sym); return; }
     const d = await r.json();
+    totalBars = d.total || (d.klines || []).length;
     updateHeader(sym, d);
-    // 清空旧数据
-    candleSeries.setData([]);
-    biSeries.setData([]);
-    volumeSeries.setData([]);
-    candleSeries.setMarkers([]);
-    if (state.lastPrimitive) { candleSeries.detachPrimitive(state.lastPrimitive); state.lastPrimitive = null; }
-    // K线
-    candleSeries.setData(d.klines);
-    // 成交量
-    volumeSeries.setData(d.klines.map((k,i) => {
-      const prev = i>0 ? d.klines[i-1] : null;
-      const up = !prev || k.close >= prev.close;
-      return { time:k.time, value:k.vol || 0, color: up ? 'rgba(38,166,154,0.4)' : 'rgba(239,83,80,0.4)' };
-    }));
-    // 笔
-    if (d.bis && d.bis.length) {
-      const pts = []; let lastT = null;
-      d.bis.forEach(b => {
-        const isUp = String(b.direction).includes('向上');
-        const sP = isUp ? b.low : b.high, eP = isUp ? b.high : b.low;
-        if (b.sdt !== lastT) pts.push({ time:b.sdt, value:sP });
-        pts.push({ time:b.edt, value:eP }); lastT = b.edt;
-      });
-      biSeries.setData(pts);
+    if (isAppend) {
+      // 向前翻页: 新窗口数据 prepend + 与已有窗口合并 (按 sdt 去重)
+      allKlines = (d.klines || []).concat(allKlines);
+      const newBs = new Set((d.bis||[]).map(b => b.sdt));
+      const newZs = new Set((d.zs||[]).map(z => z.sdt));
+      const newPs = new Set((d.points||[]).map(p => p.time));
+      allBis = (d.bis||[]).concat(allBis.filter(b => !newBs.has(b.sdt)));
+      allZs = (d.zs||[]).concat(allZs.filter(z => !newZs.has(z.sdt)));
+      allPoints = (d.points||[]).concat(allPoints.filter(p => !newPs.has(p.time)));
+      nextStart = d.next_start || null;
+      if (!d.klines || !d.klines.length) nextStart = null;  // 到底了
+      renderChart(allKlines, allBis, allZs, allPoints);
+      const vs = chart.timeScale().getVisibleLogicalRange();
+      if (vs) chart.timeScale().setVisibleLogicalRange({ from: vs.from + (d.klines?.length||0), to: vs.to + (d.klines?.length||0) });
+    } else {
+      allKlines = d.klines || [];
+      allBis = d.bis || []; allZs = d.zs || []; allPoints = d.points || [];
+      nextStart = d.next_start || null;
+      renderChart(allKlines, allBis, allZs, allPoints);
+      // 初始视图: 只显示最新 ~200 根 (不是 fit 全部 800 根, 否则左边界=0会立即触发翻页)
+      const n = allKlines.length;
+      chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 200), to: n });
     }
-    // 中枢矩形
-    if (d.zs && d.zs.length) {
-      const zones = d.zs.map(z => ({ sdt:z.sdt, edt:z.edt, zg:z.zg, zd:z.zd }));
-      state.lastPrimitive = new ZsRectanglePrimitive(candleSeries, zones, chart);
-      candleSeries.attachPrimitive(state.lastPrimitive);
-    }
-    // 买卖点
-    if (d.points && d.points.length) {
-      candleSeries.setMarkers(d.points.map(p => ({
-        time:p.time, position:p.type.startsWith('buy') ? 'belowBar' : 'aboveBar',
-        color:MARK_COLORS[p.type] || '#fff',
-        shape:p.type.startsWith('buy') ? 'arrowUp' : 'arrowDown', text:p.label,
-      })));
-    }
-    chart.timeScale().fitContent();
-    // 同步 URL (不刷新)
     history.replaceState(null, '', `/stock/${encodeURIComponent(sym)}`);
   } catch (e) { console.error(e); alert('加载出错: ' + e.message); }
-  finally { document.getElementById('loadmask').classList.remove('on'); }
+  finally { document.getElementById('loadmask').classList.remove('on'); loadingMore = false; firstLoadDone = true; }
 }
+
+// 时间轴滚动 → 拖到最左时加载更早历史
+chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+  if (!range || loadingMore || !firstLoadDone) return;
+  if (nextStart && range.from < 60) {   // 左边界接近起点, 向前翻页
+    loadingMore = true;
+    loadSymbol(state.symbol, true);
+  }
+});
 
 function updateHeader(sym, d) {
   document.getElementById('symCode').textContent = sym;

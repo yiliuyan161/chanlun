@@ -16,13 +16,32 @@ from __future__ import annotations
 import argparse
 import os
 
+# czsc 默认只保留最近 50 笔的K线 (czsc_max_bi_num=50), 更早历史会被裁掉。
+# 设大以保留全量历史 (日K全量最多 ~8700 根 / ~700 笔)。
+os.environ.setdefault("czsc_max_bi_num", "10000")
+
 import duckdb
 import pandas as pd
 from aiohttp import web
 from czsc import CZSC, Freq, RawBar
 
 DB = os.environ.get("CHANLUN_DB", "data/market.duckdb")
-DEFAULT_LIMIT = 2000
+DEFAULT_LIMIT = 800        # 首屏K线数 (约3年)
+CACHE: dict[str, dict] = {}  # thscode -> 全量 payload (klines/bis/zs/points)
+CACHE_MAX = 50              # LRU 上限
+
+def cache_get(key: str) -> dict | None:
+    v = CACHE.get(key)
+    if v is not None:
+        CACHE.pop(key); CACHE[key] = v   # LRU touch
+    return v
+
+def cache_put(key: str, val: dict) -> None:
+    if key in CACHE:
+        CACHE.pop(key)
+    CACHE[key] = val
+    if len(CACHE) > CACHE_MAX:
+        CACHE.pop(next(iter(CACHE)))     # 丢弃最旧
 
 
 def connect() -> duckdb.DuckDBPyConnection:
@@ -194,19 +213,67 @@ async def handle_symbols(request: web.Request) -> web.Response:
 async def handle_kline(request: web.Request) -> web.Response:
     thscode = request.match_info["thscode"]
     limit = int(request.query.get("limit", DEFAULT_LIMIT))
-    con = connect()
-    try:
-        bars = load_bars(con, thscode, limit)
-        if not bars:
-            return web.json_response({"error": "symbol not found"}, status=404)
-        c = CZSC(bars)
-        payload = chanlun_json(c)
-        payload["symbol"] = thscode
-    except Exception as e:
-        return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=500)
-    finally:
-        con.close()
-    return web.json_response(payload)
+    end_date = request.query.get("end_date", None)  # 取更早窗口: 返回 ≤ end_date 的最近 limit 根
+    # 全量 payload 内存缓存(缠论结构必须基于全历史计算); 响应按 limit 切片
+    full = cache_get(thscode)
+    if full is None:
+        con = connect()
+        try:
+            bars = load_bars(con, thscode, limit=999999)  # 全量
+            if not bars:
+                return web.json_response({"error": "symbol not found"}, status=404)
+            c = CZSC(bars)
+            payload = chanlun_json(c)
+            payload["symbol"] = thscode
+            payload["total"] = len(bars)
+            cache_put(thscode, payload)
+        except Exception as e:
+            return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=500)
+        finally:
+            con.close()
+        full = payload
+    return web.json_response(slice_payload(full, limit, end_date))
+
+
+def slice_payload(payload: dict, limit: int, end_date: str | None = None) -> dict:
+    """按 limit 切片: 默认取最近 limit 根; 若给 end_date, 取 ≤ end_date 的最近 limit 根(向前翻页).
+    笔/中枢若从窗口左侧延伸进来, 起点截断到窗口起点, 保证左侧线条连续.
+    返回附加 next_start(cursor): 窗口最早日期的前一天, 用于前端继续向前翻页."""
+    klines = payload["klines"]
+    if end_date:
+        idx = [i for i, k in enumerate(klines) if k["time"] <= end_date]
+        if not idx:
+            return {"klines": [], "bis": [], "zs": [], "points": [], "total": payload["total"], "done": True}
+        end_i = idx[-1] + 1
+    else:
+        end_i = len(klines)
+    start_i = max(0, end_i - limit)
+    win = klines[start_i:end_i]
+    if not win:
+        return {"klines": [], "bis": [], "zs": [], "points": [], "total": payload["total"], "done": True}
+    start, end = win[0]["time"], win[-1]["time"]
+    out = dict(payload)
+    out["klines"] = win
+    out["next_start"] = (klines[start_i - 1]["time"] if start_i > 0 else None)
+    bis = []
+    for b in payload["bis"]:
+        if b["edt"] < start:
+            continue
+        bb = dict(b)
+        if bb["sdt"] < start:
+            bb["sdt"] = start
+        bis.append(bb)
+    out["bis"] = bis
+    out["zs"] = []
+    for z in payload["zs"]:
+        if z["edt"] < start or z["sdt"] > end:
+            continue
+        zz = dict(z)
+        if zz["sdt"] < start:
+            zz["sdt"] = start
+        out["zs"].append(zz)
+    out["points"] = [p for p in payload["points"] if start <= p["time"] <= end]
+    return out
 
 
 def build_app() -> web.Application:
