@@ -3,106 +3,312 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>缠论 — 股票</title>
+<title>缠论 — A股技术图表</title>
 <style>
+  :root {
+    --bg:#131722; --bg2:#1c2030; --panel:#1e222d; --border:#2a2e39;
+    --text:#d1d4dc; --text2:#8b949e; --accent:#58a6ff; --up:#26a69a; --down:#ef5350;
+  }
   * { box-sizing:border-box; margin:0; padding:0; }
-  body { background:#131722; font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; color:#d1d4dc; }
-  .top { display:flex; align-items:center; gap:16px; padding:12px 20px; border-bottom:1px solid #2a2e39; background:#1c2030; }
-  .top a { color:#58a6ff; text-decoration:none; font-size:14px; }
-  .top h1 { font-size:18px; }
-  .top .name { color:#8b949e; font-size:14px; }
-  #chart { position:relative; width:100%; height:calc(100vh - 58px); }
+  html,body { height:100%; }
+  body { background:var(--bg); color:var(--text); font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; overflow:hidden; }
+  /* ═══ 顶栏 (TradingView 风格) ═══ */
+  .tv-topbar { display:flex; align-items:center; gap:0; height:46px; background:var(--bg2); border-bottom:1px solid var(--border); padding:0 8px; user-select:none; }
+  .brand { display:flex; align-items:center; gap:7px; padding:0 12px; font-weight:700; font-size:15px; color:var(--text); cursor:pointer; }
+  .brand .logo { width:22px; height:22px; border-radius:5px; background:linear-gradient(135deg,#58a6ff,#8b5cf6); display:flex; align-items:center; justify-content:center; font-size:12px; color:#fff; }
+  .sep { width:1px; height:22px; background:var(--border); margin:0 8px; }
+  /* 标的名切换按钮 */
+  .symbol-picker { display:flex; align-items:center; gap:8px; padding:6px 12px; cursor:pointer; border-radius:6px; transition:background .12s; }
+  .symbol-picker:hover { background:var(--panel); }
+  .symbol-picker .code { font-size:16px; font-weight:600; color:var(--text); }
+  .symbol-picker .nm { font-size:11px; color:var(--text2); margin-top:-1px; }
+  .symbol-picker .caret { font-size:10px; color:var(--text2); }
+  /* 状态栏 OHLC */
+  .ohlc { display:flex; align-items:center; gap:14px; padding:0 10px; margin-left:auto; font-size:12px; }
+  .ohlc .price { font-size:16px; font-weight:700; }
+  .ohlc .chg { font-size:12px; font-weight:600; }
+  .ohlc .fld { display:flex; flex-direction:column; align-items:flex-start; }
+  .ohlc .fld .k { font-size:9px; color:var(--text2); text-transform:uppercase; }
+  .ohlc .fld .v { font-size:12px; }
+  .up { color:var(--up); } .down { color:var(--down); } .flat { color:var(--text2); }
+  /* 工具按钮 */
+  .tool { width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:6px; cursor:pointer; color:var(--text2); font-size:15px; transition:all .12s; }
+  .tool:hover { background:var(--panel); color:var(--text); }
+  /* ═══ 搜索弹窗 (App 体验) ═══ */
+  .modal-mask { position:fixed; inset:0; background:rgba(0,0,0,.55); backdrop-filter:blur(3px); z-index:100; display:none; opacity:0; transition:opacity .15s; }
+  .modal-mask.open { display:block; opacity:1; }
+  .modal { position:fixed; top:64px; left:50%; transform:translateX(-50%); width:min(560px,92vw); background:var(--bg2); border:1px solid var(--border); border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.5); z-index:101; display:none; opacity:0; transform:translateX(-50%) translateY(-6px); transition:opacity .15s, transform .15s; overflow:hidden; }
+  .modal.open { display:block; opacity:1; transform:translateX(-50%) translateY(0); }
+  .modal-head { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border); }
+  .modal-head input { flex:1; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:9px 14px; font-size:15px; color:var(--text); outline:none; }
+  .modal-head input:focus { border-color:var(--accent); }
+  .modal-close { cursor:pointer; color:var(--text2); font-size:18px; padding:4px 8px; border-radius:6px; }
+  .modal-close:hover { background:var(--panel); color:var(--text); }
+  .modal-list { max-height:430px; overflow-y:auto; }
+  .modal-list .item { display:flex; align-items:center; gap:12px; padding:10px 16px; cursor:pointer; border-left:3px solid transparent; }
+  .modal-list .item:hover, .modal-list .item.sel { background:var(--panel); border-left-color:var(--accent); }
+  .modal-list .item .i-code { font-weight:600; font-size:14px; width:92px; }
+  .modal-list .item .i-name { font-size:13px; color:var(--text2); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .modal-list .item .i-ex { font-size:10px; color:var(--accent); border:1px solid var(--accent); border-radius:4px; padding:1px 5px; }
+  .modal-list .empty { padding:30px; text-align:center; color:var(--text2); font-size:13px; }
+  .modal-hint { padding:8px 16px; border-top:1px solid var(--border); color:var(--text2); font-size:11px; display:flex; gap:14px; }
+  /* 加载遮罩 */
+  .loadmask { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:rgba(19,23,34,.55); z-index:50; }
+  .loadmask.on { display:flex; }
+  .spinner { width:28px; height:28px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  /* 图表容器 */
+  #wrap { position:relative; height:calc(100% - 46px); }
+  #chart { position:absolute; inset:0; }
+  /* 周期条 (底部, 仿TV) */
+  .tf-bar { position:absolute; bottom:0; left:50%; transform:translateX(-50%); display:flex; gap:2px; background:var(--bg2); border:1px solid var(--border); border-radius:6px; padding:2px; z-index:20; }
+  .tf-bar .tf { padding:3px 10px; font-size:11px; border-radius:4px; cursor:pointer; color:var(--text2); }
+  .tf-bar .tf.active { background:var(--accent); color:#fff; }
+  .tf-bar .tf:hover:not(.active) { background:var(--panel); color:var(--text); }
+  /* scrollbar */
+  .modal-list::-webkit-scrollbar { width:6px; } .modal-list::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
 </style>
 </head>
 <body>
-<div class="top">
-  <a href="/">← 返回</a>
-  <h1 id="sym">加载中…</h1>
-  <span class="name" id="name"></span>
+
+<!-- 顶栏 -->
+<div class="tv-topbar">
+  <div class="brand" onclick="location.href='/'">
+    <div class="logo">缠</div><span>缠论图表</span>
+  </div>
+  <div class="sep"></div>
+  <!-- 左上角: 标的名切换 -->
+  <div class="symbol-picker" id="symPicker">
+    <div>
+      <div class="code" id="symCode">—</div>
+      <div class="nm" id="symName">加载中…</div>
+    </div>
+    <span class="caret">▾</span>
+  </div>
+  <div class="sep"></div>
+  <!-- 状态栏 OHLC -->
+  <div class="ohlc">
+    <div class="fld"><span class="k">最新</span><span class="v price" id="vPrice">—</span></div>
+    <div class="fld"><span class="k">涨跌</span><span class="v" id="vChg">—</span></div>
+    <div class="fld"><span class="k">开</span><span class="v" id="vOpen">—</span></div>
+    <div class="fld"><span class="k">高</span><span class="v" id="vHigh">—</span></div>
+    <div class="fld"><span class="k">低</span><span class="v" id="vLow">—</span></div>
+    <div class="fld"><span class="k">量</span><span class="v" id="vVol">—</span></div>
+  </div>
+  <div class="tool" id="btnFull" title="全屏">⛶</div>
 </div>
-<div id="chart"></div>
+
+<!-- 图表 -->
+<div id="wrap">
+  <div id="chart"></div>
+  <div class="loadmask" id="loadmask"><div class="spinner"></div></div>
+  <div class="tf-bar"><span class="tf active" data-tf="daily">日线</span><span class="tf" data-tf="weekly">周线</span><span class="tf" data-tf="monthly">月线</span></div>
+</div>
+
+<!-- 搜索弹窗 -->
+<div class="modal-mask" id="modalMask"></div>
+<div class="modal" id="modal">
+  <div class="modal-head">
+    <input id="searchInput" type="text" placeholder="搜索股票代码或名称, 如 600519 / 茅台" autocomplete="off" autocapitalize="off">
+    <div class="modal-close" id="modalClose">✕</div>
+  </div>
+  <div class="modal-list" id="modalList"></div>
+  <div class="modal-hint"><span>↑↓ 选择</span><span>Enter 确认</span><span>Esc 关闭</span></div>
+</div>
 
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <script src="/chan-primitives.js?v=4"></script>
 <script>
-const symbol = location.pathname.split('/').pop();
+/* ═════════════════ 状态 ═════════════════ */
+const state = {
+  symbol: decodeURIComponent(location.pathname.split('/').pop() || ''),
+  tf: 'daily',
+  lastPrimitive: null,   // 当前附着的中枢 primitive
+  symbols: [],           // 全量标的名录
+};
+const DEFAULT_SYMBOL = '600519.SH';
+
+/* ═════════════════ 图表初始化 ═════════════════ */
 const container = document.getElementById('chart');
 const chart = LightweightCharts.createChart(container, {
-  layout: { background:{type:'solid',color:'#131722'}, textColor:'#d1d4dc' },
+  layout: { background:{type:'solid',color:'#131722'}, textColor:'#d1d4dc', fontSize:12 },
   grid: { vertLines:{color:'#1e222d'}, horzLines:{color:'#1e222d'} },
-  rightPriceScale: { borderColor:'#2a2e39' },
+  rightPriceScale: { borderColor:'#2a2e39', scaleMargins:{ top:0.08, bottom:0.22 } },
   timeScale: { borderColor:'#2a2e39', timeVisible:false },
   crosshair: { mode: 0 },
   autoSize: true,
 });
-
 const candleSeries = chart.addCandlestickSeries({
   upColor:'#26a69a', downColor:'#ef5350', borderVisible:false, wickUpColor:'#26a69a', wickDownColor:'#ef5350',
 });
 const biSeries = chart.addLineSeries({ color:'#58a6ff', lineWidth:2, priceLineVisible:false, lastValueVisible:false });
-const volumeSeries = chart.addHistogramSeries({ priceFormat:{type:'volume'}, priceScaleId:'vol' });
-chart.priceScale('vol').applyOptions({ scaleMargins:{ top:0.82, bottom:0 } });
+const volumeSeries = chart.addHistogramSeries({ priceFormat:{ type:'volume' }, priceScaleId:'vol' });
+chart.priceScale('vol').applyOptions({ scaleMargins:{ top:0.84, bottom:0 } });
 
-// 买卖点 markers 颜色
-const MARK_COLORS = {
-  buy1:'#26a69a', buy2:'#2ecc71', buy3:'#00e5ff',
-  sell1:'#ef5350', sell2:'#ff7043', sell3:'#ffd700',
-};
+const MARK_COLORS = { buy1:'#26a69a', buy2:'#2ecc71', buy3:'#00e5ff', sell1:'#ef5350', sell2:'#ff7043', sell3:'#ffd700' };
 
-async function init() {
+/* ═════════════════ 动态加载 (切换标的) ═════════════════ */
+async function loadSymbol(sym) {
+  state.symbol = sym;
+  document.getElementById('loadmask').classList.add('on');
   try {
-    const r = await fetch(`/api/kline/${symbol}?limit=1500`);
-    if (!r.ok) { alert('股票不存在或加载失败'); return; }
-    const data = await r.json();
-    document.getElementById('sym').textContent = data.symbol;
-
-    candleSeries.setData(data.klines);
-
+    const r = await fetch(`/api/kline/${encodeURIComponent(sym)}?limit=1500`);
+    if (!r.ok) { alert('加载失败: ' + sym); return; }
+    const d = await r.json();
+    updateHeader(sym, d);
+    // 清空旧数据
+    candleSeries.setData([]);
+    biSeries.setData([]);
+    volumeSeries.setData([]);
+    candleSeries.setMarkers([]);
+    if (state.lastPrimitive) { candleSeries.detachPrimitive(state.lastPrimitive); state.lastPrimitive = null; }
+    // K线
+    candleSeries.setData(d.klines);
     // 成交量
-    const vols = data.klines.map((k,i) => {
-      const prev = i>0 ? data.klines[i-1] : null;
+    volumeSeries.setData(d.klines.map((k,i) => {
+      const prev = i>0 ? d.klines[i-1] : null;
       const up = !prev || k.close >= prev.close;
-      return { time:k.time, value:k.vol ?? 0, color: up ? 'rgba(38,166,154,0.4)' : 'rgba(239,83,80,0.4)' };
-    });
-    volumeSeries.setData(vols);
-
-    // 笔 → 连续折线 (方向中文判断, 去重共享端点)
-    if (data.bis && data.bis.length) {
-      const pts = [];
-      let lastTime = null;
-      data.bis.forEach(b => {
+      return { time:k.time, value:k.vol || 0, color: up ? 'rgba(38,166,154,0.4)' : 'rgba(239,83,80,0.4)' };
+    }));
+    // 笔
+    if (d.bis && d.bis.length) {
+      const pts = []; let lastT = null;
+      d.bis.forEach(b => {
         const isUp = String(b.direction).includes('向上');
-        const sP = isUp ? b.low : b.high;
-        const eP = isUp ? b.high : b.low;
-        if (b.sdt !== lastTime) pts.push({ time:b.sdt, value:sP });
-        pts.push({ time:b.edt, value:eP });
-        lastTime = b.edt;
+        const sP = isUp ? b.low : b.high, eP = isUp ? b.high : b.low;
+        if (b.sdt !== lastT) pts.push({ time:b.sdt, value:sP });
+        pts.push({ time:b.edt, value:eP }); lastT = b.edt;
       });
       biSeries.setData(pts);
     }
-
-    // 中枢矩形 — 官方 primitive API (v4 需显式传 chart)
-    if (data.zs && data.zs.length) {
-      const zones = data.zs.map(z => ({ sdt:z.sdt, edt:z.edt, zg:z.zg, zd:z.zd }));
-      candleSeries.attachPrimitive(new ZsRectanglePrimitive(candleSeries, zones, chart));
+    // 中枢矩形
+    if (d.zs && d.zs.length) {
+      const zones = d.zs.map(z => ({ sdt:z.sdt, edt:z.edt, zg:z.zg, zd:z.zd }));
+      state.lastPrimitive = new ZsRectanglePrimitive(candleSeries, zones, chart);
+      candleSeries.attachPrimitive(state.lastPrimitive);
     }
-
-    // 买卖点 markers
-    if (data.points && data.points.length) {
-      const markers = data.points.map(p => ({
-        time: p.time,
-        position: p.type.startsWith('buy') ? 'belowBar' : 'aboveBar',
-        color: MARK_COLORS[p.type] || '#fff',
-        shape: p.type.startsWith('buy') ? 'arrowUp' : 'arrowDown',
-        text: p.label,
-      }));
-      candleSeries.setMarkers(markers);
+    // 买卖点
+    if (d.points && d.points.length) {
+      candleSeries.setMarkers(d.points.map(p => ({
+        time:p.time, position:p.type.startsWith('buy') ? 'belowBar' : 'aboveBar',
+        color:MARK_COLORS[p.type] || '#fff',
+        shape:p.type.startsWith('buy') ? 'arrowUp' : 'arrowDown', text:p.label,
+      })));
     }
-
     chart.timeScale().fitContent();
-  } catch (e) { console.error(e); }
+    // 同步 URL (不刷新)
+    history.replaceState(null, '', `/stock/${encodeURIComponent(sym)}`);
+  } catch (e) { console.error(e); alert('加载出错: ' + e.message); }
+  finally { document.getElementById('loadmask').classList.remove('on'); }
 }
-init();
+
+function updateHeader(sym, d) {
+  document.getElementById('symCode').textContent = sym;
+  // 找名称
+  const s = state.symbols.find(x => x.thscode === sym);
+  document.getElementById('symName').textContent = s ? s.name : '';
+  document.title = `${sym} ${s ? s.name : ''} — 缠论图表`;
+  // OHLC
+  const k = d.klines[d.klines.length - 1];
+  if (k) {
+    const prev = d.klines[d.klines.length - 2];
+    const chg = prev ? (k.close - prev.close) / prev.close * 100 : 0;
+    const cls = chg > 0.0001 ? 'up' : chg < -0.0001 ? 'down' : 'flat';
+    document.getElementById('vPrice').textContent = k.close.toFixed(2);
+    document.getElementById('vPrice').className = 'v price ' + cls;
+    document.getElementById('vChg').textContent = (chg>0?'+':'') + chg.toFixed(2) + '%';
+    document.getElementById('vChg').className = 'v ' + cls;
+    document.getElementById('vOpen').textContent = k.open.toFixed(2);
+    document.getElementById('vHigh').textContent = k.high.toFixed(2);
+    document.getElementById('vLow').textContent = k.low.toFixed(2);
+    const vol = k.vol;
+    document.getElementById('vVol').textContent = vol >= 1e8 ? (vol/1e8).toFixed(2)+'亿' : vol >= 1e4 ? (vol/1e4).toFixed(1)+'万' : vol;
+  }
+}
+
+/* ═════════════════ 搜索弹窗 ═════════════════ */
+const modal = document.getElementById('modal'), mask = document.getElementById('modalMask'),
+      sInput = document.getElementById('searchInput'), sList = document.getElementById('modalList');
+let selIdx = 0, results = [];
+
+function openModal() {
+  mask.classList.add('open'); modal.classList.add('open');
+  sInput.value = ''; selIdx = 0;
+  setTimeout(() => sInput.focus(), 50);
+  search('');
+}
+function closeModal() { mask.classList.remove('open'); modal.classList.remove('open'); }
+
+function renderList() {
+  if (!results.length) { sList.innerHTML = '<div class="empty">无匹配标的</div>'; return; }
+  sList.innerHTML = results.map((s,i) => `
+    <div class="item ${i===selIdx?'sel':''}" data-i="${i}">
+      <span class="i-code">${s.thscode}</span>
+      <span class="i-name">${s.name||''}</span>
+      <span class="i-ex">${s.exchange}</span>
+    </div>`).join('');
+  const sel = sList.querySelector('.sel');
+  if (sel) sel.scrollIntoView({ block:'nearest' });
+}
+function pick(i) {
+  const s = results[i];
+  if (!s) return;
+  closeModal();
+  loadSymbol(s.thscode);
+}
+let searchTimer = null;
+function search(q) {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(async () => {
+    const qq = q.trim();
+    if (!qq) { results = state.symbols.slice(0,50); selIdx = 0; renderList(); return; }
+    try {
+      const r = await fetch('/api/search?q=' + encodeURIComponent(qq));
+      results = await r.json(); selIdx = 0; renderList();
+    } catch(e) { console.error(e); }
+  }, 120);
+}
+sInput.addEventListener('input', e => { selIdx = 0; search(e.target.value); });
+sInput.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); selIdx = Math.min(selIdx+1, results.length-1); renderList(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); selIdx = Math.max(selIdx-1, 0); renderList(); }
+  else if (e.key === 'Enter') { e.preventDefault(); pick(selIdx); }
+  else if (e.key === 'Escape') closeModal();
+});
+sList.addEventListener('click', e => {
+  const it = e.target.closest('.item'); if (it) pick(+it.dataset.i);
+});
+document.getElementById('symPicker').addEventListener('click', openModal);
+document.getElementById('modalClose').addEventListener('click', closeModal);
+mask.addEventListener('click', closeModal);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && modal.classList.contains('open')) closeModal(); });
+
+// 全屏
+document.getElementById('btnFull').addEventListener('click', () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen();
+});
+
+/* ═════════════════ 周期切换 (预留) ═════════════════ */
+document.querySelectorAll('.tf-bar .tf').forEach(el => {
+  el.addEventListener('click', () => {
+    document.querySelectorAll('.tf-bar .tf').forEach(x => x.classList.remove('active'));
+    el.classList.add('active');
+    state.tf = el.dataset.tf;
+  });
+});
+
+/* ═════════════════ 启动 ═════════════════ */
+async function boot() {
+  // 加载标的名录
+  try {
+    const r = await fetch('/api/symbols');
+    state.symbols = await r.json();
+  } catch(e) { console.error('symbols load fail', e); }
+  const sym = state.symbol || DEFAULT_SYMBOL;
+  await loadSymbol(sym);
+}
+boot();
 </script>
 </body>
 </html>
