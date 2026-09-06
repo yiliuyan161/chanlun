@@ -185,6 +185,8 @@ function renderChart(k, bis, zs, points) {
 async function loadSymbol(sym, isAppend = false) {
   state.symbol = sym;
   if (!isAppend) document.getElementById('loadmask').classList.add('on');
+  // 翻页前捕获当前可见范围, 用于合并后锚定 (必须在 setData 之前, 否则范围被搅乱)
+  const preRange = chart.timeScale().getVisibleLogicalRange();
   try {
     const url = isAppend && nextStart
       ? `/api/kline/${encodeURIComponent(sym)}?limit=${PAGE}&end_date=${nextStart}`
@@ -206,8 +208,12 @@ async function loadSymbol(sym, isAppend = false) {
       nextStart = d.next_start || null;
       if (!d.klines || !d.klines.length) nextStart = null;  // 到底了
       renderChart(allKlines, allBis, allZs, allPoints);
-      const vs = chart.timeScale().getVisibleLogicalRange();
-      if (vs) chart.timeScale().setVisibleLogicalRange({ from: vs.from + (d.klines?.length||0), to: vs.to + (d.klines?.length||0) });
+      // 锚定到翻页前看到的范围 + 新窗口宽度, clamp 到数据边界
+      const shift = (d.klines || []).length;
+      const total = allKlines.length;
+      const from = Math.max(0, (preRange ? preRange.from : 0) + shift);
+      const to = Math.min(total, (preRange ? preRange.to : total) + shift);
+      chart.timeScale().setVisibleLogicalRange({ from, to });
     } else {
       allKlines = d.klines || [];
       allBis = d.bis || []; allZs = d.zs || []; allPoints = d.points || [];

@@ -23,6 +23,10 @@
   .card .sym { font-weight:600; font-size:15px; }
   .card .ex { color:#58a6ff; font-size:12px; margin-left:6px; }
   .card .name { color:#c9d1d9; font-size:13px; margin-top:4px; }
+  .nav { display:flex; gap:10px; margin:0 0 20px; }
+  .nav a { display:inline-flex; align-items:center; gap:6px; padding:9px 16px; background:#161b22;
+           border:1px solid #30363d; border-radius:10px; text-decoration:none; color:#e6edf3; font-size:14px; transition:border-color .15s; }
+  .nav a:hover { border-color:#58a6ff; }
 </style>
 </head>
 <body>
@@ -30,6 +34,12 @@
   <h1>📈 A股缠论 — 中枢可视化</h1>
   <div class="sub">czsc 缠论结构 · lightweight-charts 渲染 · 数据每日更新</div>
   <input id="search" type="text" placeholder="搜索代码或名称，如 600519 / 茅台" autofocus>
+  <div class="nav">
+    <a href="/limit-board?tab=up">🔥 涨停池</a>
+    <a href="/limit-board?tab=down">📉 跌停池</a>
+    <a href="/limit-board?tab=break">💥 炸板池</a>
+    <a href="/limit-board?tab=ladder">🪜 连板天梯</a>
+  </div>
   <div class="count" id="count"></div>
   <div class="grid" id="grid"></div>
 </div>

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>涨跌停榜单 — 同花顺数据</title>
+<style>
+  :root {
+    --bg:#131722; --bg2:#1c2030; --panel:#1e222d; --border:#2a2e39;
+    --text:#d1d4dc; --text2:#8b949e; --accent:#58a6ff; --up:#26a69a; --down:#ef5350;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+  .topbar { display:flex; align-items:center; height:46px; background:var(--bg2); border-bottom:1px solid var(--border); padding:0 12px; gap:10px; }
+  .brand { display:flex; align-items:center; gap:7px; font-weight:700; font-size:15px; cursor:pointer; text-decoration:none; color:var(--text); }
+  .brand .logo { width:22px; height:22px; border-radius:5px; background:linear-gradient(135deg,#58a6ff,#8b5cf6); display:flex; align-items:center; justify-content:center; font-size:12px; color:#fff; }
+  .sep { width:1px; height:22px; background:var(--border); margin:0 6px; }
+  .back { font-size:13px; color:var(--text2); text-decoration:none; cursor:pointer; padding:4px 8px; border-radius:6px; }
+  .back:hover { background:var(--panel); color:var(--text); }
+  /* tabs */
+  .tabs { display:flex; gap:4px; padding:10px 14px 0; }
+  .tab { padding:7px 16px; font-size:13px; border-radius:8px 8px 0 0; cursor:pointer; color:var(--text2); background:transparent; border:1px solid transparent; border-bottom:none; }
+  .tab:hover { color:var(--text); }
+  .tab.active { background:var(--panel); color:var(--text); border-color:var(--border); font-weight:600; }
+  .wrap { padding:12px 14px 30px; }
+  .load { text-align:center; padding:60px 0; color:var(--text2); font-size:13px; }
+  /* table */
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; padding:8px 10px; color:var(--text2); font-weight:500; border-bottom:1px solid var(--border); font-size:12px; white-space:nowrap; }
+  td { padding:8px 10px; border-bottom:1px solid #22252e; white-space:nowrap; }
+  tr.row { cursor:pointer; }
+  tr.row:hover td { background:var(--panel); }
+  .code { font-weight:600; }
+  .nm { color:var(--text2); }
+  .up { color:var(--up); } .down { color:var(--down); }
+  .chip { display:inline-block; padding:1px 6px; border-radius:4px; font-size:11px; margin-right:4px; }
+  .chip.lb { background:rgba(239,83,80,.15); color:#ff5252; border:1px solid rgba(239,83,80,.3); }
+  .chip.st { background:rgba(255,215,0,.1); color:#ffd700; border:1px solid rgba(255,215,0,.3); }
+  .pill { display:inline-block; background:var(--panel); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:2px 8px; margin:2px 4px 2px 0; font-size:12px; cursor:pointer; }
+  .pill:hover { border-color:var(--accent); color:var(--accent); }
+  .empty { padding:40px; text-align:center; color:var(--text2); }
+  .datehead td { background:#171a26; color:var(--text2); font-weight:600; }
+  .meta { color:var(--text2); font-size:12px; padding:8px 0 0 2px; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a class="brand" href="/"><div class="logo">缠</div><span>缠论图表</span></a>
+  <div class="sep"></div>
+  <a class="back" href="/">← 返回</a>
+  <div style="flex:1"></div>
+  <span style="font-size:12px;color:var(--text2)">数据源: 同花顺 fuyao</span>
+</div>
+<div class="tabs" id="tabs"></div>
+<div class="wrap">
+  <div class="meta" id="meta"></div>
+  <div id="content"><div class="load">加载中…</div></div>
+</div>
+
+<script>
+const TABS = [
+  { id:'up',     label:'涨停池',    fields:['name','last_price','price_change_ratio_pct','limit_up_time','limit_up_reason','continue_day_text','seal_money'] },
+  { id:'down',   label:'跌停池',    fields:['name','last_price','price_change_ratio_pct','first_limit_time','last_limit_time','turnover_ratio_pct'] },
+  { id:'break',  label:'炸板池',    fields:['name','last_price','price_change_ratio_pct','open_times','turnover_ratio_pct','turnover'] },
+  { id:'ladder', label:'连板天梯',  fields:[] },
+];
+let active = new URLSearchParams(location.search).get('tab') || 'up';
+if (!TABS.find(t => t.id === active)) active = 'up';
+
+function fmt(v, f) {
+  if (v === null || v === undefined || v === '') return '—';
+  if (f === 'last_price' || f === 'seal_money' || f === 'max_seal_money' || f === 'turnover') {
+    const n = Number(v);
+    if (f === 'seal_money' || f === 'max_seal_money' || f === 'turnover') return (n >= 1e8 ? (n/1e8).toFixed(1)+'亿' : n >= 1e4 ? (n/1e4).toFixed(1)+'万' : n.toFixed(0));
+    return n.toFixed(2);
+  }
+  if (f === 'price_change_ratio_pct') return Number(v)>0 ? '+' + Number(v).toFixed(2) + '%' : Number(v).toFixed(2) + '%';
+  if (f === 'turnover_ratio_pct') return Number(v).toFixed(2) + '%';
+  return v;
+}
+const FIELD_HEADERS = {
+  last_price:'最新价', price_change_ratio_pct:'涨跌幅', limit_up_time:'涨停时间',
+  limit_up_reason:'涨停原因', continue_day_text:'连板', seal_money:'封单额',
+  first_limit_time:'首封', last_limit_time:'最终', turnover_ratio_pct:'换手率',
+  open_times:'开板次数', turnover:'成交额',
+};
+function clsOf(v) { const n = Number(v)||0; return n > 0 ? 'up' : n < 0 ? 'down' : ''; }
+
+async function loadTab(tid) {
+  active = tid;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.id === tid));
+  const content = document.getElementById('content');
+  content.innerHTML = '<div class="load">加载中…</div>';
+  try {
+    const qp = new URLSearchParams(location.search);
+    const date_ms = qp.get('date_ms');
+    let url = '/api/limit/' + tid;
+    if (date_ms) url += '?date_ms=' + date_ms;
+    const r = await fetch(url);
+    const d = await r.json();
+    if (d.code !== 0) { content.innerHTML = `<div class="empty">接口错误: ${d.code} ${d.message||''}</div>`; return; }
+    const data = d.data;
+    document.getElementById('meta').textContent = '数据就绪: ' + new Date(data.timestamp).toLocaleString('zh-CN');
+    if (tid === 'ladder') renderLadder(content, data);
+    else renderPool(content, data, tid);
+  } catch (e) { content.innerHTML = `<div class="empty">加载失败: ${e.message}</div>`; }
+}
+
+function renderPool(content, data, tid) {
+  const items = data.item || [];
+  if (!items.length) { content.innerHTML = '<div class="empty">当日无数据(非交易日或暂无标的)</div>'; return; }
+  const fields = TABS.find(t => t.id === tid).fields;
+  const cols = ['代码', '名称', ...fields.slice(1).map(f => FIELD_HEADERS[f] || f)];
+  let h = '<table><thead><tr><th>代码</th><th>名称</th>' + cols.slice(2).map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+  items.forEach(it => {
+    const isSt = it.is_st;
+    let row = `<tr class="row" data-code="${it.thscode}">`;
+    row += `<td class="code">${it.thscode}</td>`;
+    row += `<td class="nm">${it.name}${it.is_new ? ' <span class="chip lb">新</span>' : ''}${it.is_st ? ' <span class="chip st">ST</span>' : ''}</td>`;
+    fields.slice(1).forEach(f => {
+      const v = fmt(it[f], f);
+      const cls = f === 'price_change_ratio_pct' ? ` ${clsOf(it[f])}` : '';
+      row += `<td class="${cls}">${v}</td>`;
+    });
+    row += '</tr>';
+    h += row;
+  });
+  h += '</tbody></table>';
+  content.innerHTML = h;
+  bindRows(content);
+}
+
+function renderLadder(content, data) {
+  const items = data.item || [];
+  if (!items.length) { content.innerHTML = '<div class="empty">暂无数据</div>'; return; }
+  const boards = ['two_board','three_board','four_board','five_board','six_board','seven_over'];
+  const bnames = { two_board:'2板', three_board:'3板', four_board:'4板', five_board:'5板', six_board:'6板', seven_over:'7板+' };
+  let h = '';
+  items.forEach(day => {
+    h += `<table><tbody><tr class="datehead"><td colspan="2">${day.date}</td></tr></tbody></table>`;
+    h += '<div style="padding:4px 2px 10px">';
+    boards.forEach(b => {
+      const list = (day.boards && day.boards[b]) || [];
+      if (!list.length) return;
+      h += `<span style="color:var(--text2);font-size:12px;margin-right:6px">${bnames[b]}:</span>`;
+      list.forEach(s => {
+        h += `<span class="pill" data-code="${s.thscode}" title="${s.board_num}连板">${s.name}</span>`;
+      });
+      h += '<br>';
+    });
+    h += '</div>';
+  });
+  content.innerHTML = h;
+  bindRows(content);
+}
+
+function bindRows(root) {
+  root.querySelectorAll('[data-code]').forEach(el => {
+    const go = () => location.href = '/stock/' + el.dataset.code;
+    if (el.classList.contains('row')) el.addEventListener('click', go);
+    else el.addEventListener('click', go);
+  });
+}
+
+// 渲染 tabs
+const tabsEl = document.getElementById('tabs');
+TABS.forEach(t => {
+  const el = document.createElement('div');
+  el.className = 'tab' + (t.id === active ? ' active' : '');
+  el.dataset.id = t.id;
+  el.textContent = t.label;
+  el.addEventListener('click', () => loadTab(t.id));
+  tabsEl.appendChild(el);
+});
+loadTab(active);
+</script>
+</body>
+</html>

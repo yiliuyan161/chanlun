@@ -20,10 +20,30 @@ import os
 # 设大以保留全量历史 (日K全量最多 ~8700 根 / ~700 笔)。
 os.environ.setdefault("czsc_max_bi_num", "10000")
 
+import json
+
+import aiohttp
 import duckdb
 import pandas as pd
 from aiohttp import web
 from czsc import CZSC, Freq, RawBar
+
+# 同花顺 fuyao API key (从 fintech/.env 读取, 网页侧不暴露)
+FUYAO_KEY = os.environ.get("CHANLUN_FUYAO_KEY", "")
+if not FUYAO_KEY:
+    env_path = os.path.expanduser("~/repos/fintech/.env")
+    if os.path.exists(env_path):
+        for line in open(env_path, encoding="utf-8"):
+            if line.startswith("API_KEY="):
+                FUYAO_KEY = line.strip().split("=", 1)[1].strip().strip('"').strip("'")
+                break
+FUYAO_BASE = "https://fuyao.aicubes.cn"
+FUYAO_POOLS = {
+    "up": "/api/a-share/special-data/limit-up-pool",
+    "down": "/api/a-share/special-data/limit-down-pool",
+    "break": "/api/a-share/special-data/limit-break-pool",
+    "ladder": "/api/a-share/special-data/limit-up-ladder",
+}
 
 DB = os.environ.get("CHANLUN_DB", "data/market.duckdb")
 DEFAULT_LIMIT = 800        # 首屏K线数 (约3年)
@@ -276,6 +296,33 @@ def slice_payload(payload: dict, limit: int, end_date: str | None = None) -> dic
     return out
 
 
+async def handle_limit_pool(request: web.Request) -> web.Response:
+    """代理到同花顺 fuyao 榜单接口 (涨停/跌停/炸板/连板天梯)."""
+    pool = request.match_info.get("pool", "up")
+    path = FUYAO_POOLS.get(pool)
+    if not path:
+        return web.json_response({"error": "unknown pool"}, status=404)
+    if not FUYAO_KEY:
+        return web.json_response({"error": "fuyao key not configured"}, status=500)
+    url = FUYAO_BASE + path
+    qs = request.query_string
+    if qs:
+        url += "?" + qs
+    try:
+        async with aiohttp.ClientSession() as sess:
+            async with sess.get(url, headers={"X-api-key": FUYAO_KEY}, timeout=30) as resp:
+                body = await resp.text()
+        return web.Response(text=body, content_type="application/json", charset="utf-8")
+    except Exception as e:
+        return web.json_response({"error": f"{type(e).__name__}: {e}"}, status=502)
+
+
+async def handle_limit_board(request: web.Request) -> web.FileResponse:
+    resp = web.FileResponse(os.path.join(os.path.dirname(__file__), "ui", "limit-board.html"))
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
+
+
 def build_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_index)
@@ -285,6 +332,8 @@ def build_app() -> web.Application:
     app.router.add_get("/api/kline/{thscode}", handle_kline)
     app.router.add_get("/chan-primitives.js", handle_primitive_js)
     app.router.add_get("/test-primitive", handle_test_primitive)
+    app.router.add_get("/limit-board", handle_limit_board)
+    app.router.add_get("/api/limit/{pool}", handle_limit_pool)
     return app
 
 
