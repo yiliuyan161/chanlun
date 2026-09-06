@@ -132,7 +132,7 @@ const chart = LightweightCharts.createChart(container, {
   autoSize: true,
 });
 const candleSeries = chart.addCandlestickSeries({
-  upColor:'#26a69a', downColor:'#ef5350', borderVisible:false, wickUpColor:'#26a69a', wickDownColor:'#ef5350',
+  upColor:'#ef5350', downColor:'#26a69a', borderVisible:false, wickUpColor:'#ef5350', wickDownColor:'#26a69a',
 });
 const biSeries = chart.addLineSeries({ color:'#58a6ff', lineWidth:2, priceLineVisible:false, lastValueVisible:false });
 const volumeSeries = chart.addHistogramSeries({ priceFormat:{ type:'volume' }, priceScaleId:'vol' });
@@ -153,7 +153,7 @@ function renderChart(k, bis, zs, points) {
   volumeSeries.setData(k.map((bar,i) => {
     const prev = i>0 ? k[i-1] : null;
     const up = !prev || bar.close >= prev.close;
-    return { time:bar.time, value:bar.vol || 0, color: up ? 'rgba(38,166,154,0.4)' : 'rgba(239,83,80,0.4)' };
+    return { time:bar.time, value:bar.vol || 0, color: up ? 'rgba(239,83,80,0.5)' : 'rgba(38,166,154,0.5)' };
   }));
   biSeries.setData([]);
   candleSeries.setMarkers([]);
