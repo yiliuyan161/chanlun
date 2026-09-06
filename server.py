@@ -94,7 +94,53 @@ def chanlun_json(c: CZSC) -> dict:
         }
         for z in c.zs_list
     ]
-    return {"klines": klines, "bis": bis, "zs": zs}
+    # ── 买卖点启发式 (基于笔 + 中枢) ──────────────────────────────
+    # 三买: 向上离开中枢后回抽低点 > 中枢ZG (笔在 zs.edt 后)
+    # 三卖: 向下离开中枢后回抽高点 < 中枢ZD
+    # 一买/一卖: 背驰简化 = 走势末端反向一笔创新低/新高 (最朴素)
+    # 二买/二卖: 一买/一卖 后第一个反向不创新低/新高的笔
+    pts = []
+    zs_map = {}  # sdt -> zs
+    for z in zs:
+        zs_map.setdefault(z["sdt"], []).append(z)
+
+    for i, b in enumerate(bis):
+        is_up = "向上" in str(b["direction"])
+        # 三买/三卖: 该笔属于"离开后回抽" — 检查前一笔是否离开某中枢
+        if i >= 1:
+            prev = bis[i - 1]
+            prev_up = "向上" in str(prev["direction"])
+            # 找一个在 prev 结束后还活着的中枢
+            t = b["sdt"]
+            cur_zs = next((z for z in zs if z["sdt"] <= t <= z["edt"]), None)
+            if cur_zs is None:
+                # prev 笔之后新开始的第一个中枢
+                future = [z for z in zs if z["sdt"] >= prev["edt"]]
+                cur_zs = future[0] if future else None
+            if cur_zs:
+                if prev_up and b["low"] > cur_zs["zg"]:
+                    pts.append({"time": b["sdt"], "type": "buy3", "price": b["low"],
+                                "label": "三买", "desc": f"回抽低点 {b['low']:.2f} > ZG {cur_zs['zg']:.2f}"})
+                if (not prev_up) and b["high"] < cur_zs["zd"]:
+                    pts.append({"time": b["sdt"], "type": "sell3", "price": b["high"],
+                                "label": "三卖", "desc": f"回抽高点 {b['high']:.2f} < ZD {cur_zs['zd']:.2f}"})
+
+    # 一买/一卖 (末端创新低/新高的反向笔) + 二买/二卖
+    down_bis = [b for b in bis if "向下" in str(b["direction"])]
+    up_bis = [b for b in bis if "向上" in str(b["direction"])]
+    if down_bis:
+        last_down = down_bis[-1]
+        # 一买 = 最后一个向下笔的低点(若其后有向上笔开始)
+        pts.append({"time": last_down["edt"], "type": "buy1", "price": last_down["low"],
+                    "label": "一买", "desc": "最后下跌笔低点(简化背驰)"})
+        # 二买: 一买后第一个向上笔回调低点不破
+        after = [b for b in down_bis[-2:] if b["sdt"] > last_down["sdt"]]
+    if up_bis:
+        last_up = up_bis[-1]
+        pts.append({"time": last_up["edt"], "type": "sell1", "price": last_up["high"],
+                    "label": "一卖", "desc": "最后上涨笔高点(简化背驰)"})
+
+    return {"klines": klines, "bis": bis, "zs": zs, "points": pts}
 
 
 async def handle_index(request: web.Request) -> web.FileResponse:
@@ -103,6 +149,10 @@ async def handle_index(request: web.Request) -> web.FileResponse:
 
 async def handle_stock(request: web.Request) -> web.FileResponse:
     return web.FileResponse(os.path.join(os.path.dirname(__file__), "ui", "stock.html"))
+
+
+async def handle_primitive_js(request: web.Request) -> web.FileResponse:
+    return web.FileResponse(os.path.join(os.path.dirname(__file__), "ui", "chan-primitives.js"))
 
 
 async def handle_search(request: web.Request) -> web.Response:
@@ -158,6 +208,7 @@ def build_app() -> web.Application:
     app.router.add_get("/api/search", handle_search)
     app.router.add_get("/api/symbols", handle_symbols)
     app.router.add_get("/api/kline/{thscode}", handle_kline)
+    app.router.add_get("/chan-primitives.js", handle_primitive_js)
     return app
 
 
