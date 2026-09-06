@@ -11,8 +11,8 @@
   .top a { color:#58a6ff; text-decoration:none; font-size:14px; }
   .top h1 { font-size:18px; }
   .top .name { color:#8b949e; font-size:14px; }
-  #chart { width:100%; height:calc(100vh - 58px); }
-  .zs-label { font-size:10px; color:#ffd700; pointer-events:none; }
+  #chart { position:relative; width:100%; height:calc(100vh - 58px); }
+  #zs-overlay { position:absolute; inset:0; pointer-events:none; z-index:10; }
 </style>
 </head>
 <body>
@@ -21,25 +21,60 @@
   <h1 id="sym">加载中…</h1>
   <span class="name" id="name"></span>
 </div>
-<div id="chart"></div>
+<div id="chart">
+  <canvas id="zs-overlay"></canvas>
+</div>
 
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 const symbol = location.pathname.split('/').pop();
-const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+const container = document.getElementById('chart');
+const chart = LightweightCharts.createChart(container, {
   layout: { background:{type:'solid',color:'#131722'}, textColor:'#d1d4dc' },
   grid: { vertLines:{color:'#1e222d'}, horzLines:{color:'#1e222d'} },
   rightPriceScale: { borderColor:'#2a2e39' },
   timeScale: { borderColor:'#2a2e39', timeVisible:false },
   crosshair: { mode: 0 },
 });
+
+// v4 API
 const candleSeries = chart.addCandlestickSeries({
   upColor:'#26a69a', downColor:'#ef5350', borderVisible:false, wickUpColor:'#26a69a', wickDownColor:'#ef5350',
 });
-// 笔 (bi) 作为折线
 const biSeries = chart.addLineSeries({ color:'#58a6ff', lineWidth:2, priceLineVisible:false, lastValueVisible:false });
-// 中枢 (zs) 用 MARKERS 或自定义 —— v4 用创建 series + markers 过于复杂，这里用 price lines 标上下沿
-let zsLines = [];
+const volumeSeries = chart.addHistogramSeries({
+  priceFormat: { type:'volume' },
+  priceScaleId: 'vol',
+});
+chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+
+const overlay = document.getElementById('zs-overlay');
+const ctx = overlay.getContext('2d');
+let zsData = [];
+
+function drawZones() {
+  const w = container.clientWidth, h = container.clientHeight;
+  overlay.width = w; overlay.height = h;
+  ctx.clearRect(0, 0, w, h);
+  const ts = chart.timeScale();
+  const ps = candleSeries.priceScale();
+  zsData.forEach(z => {
+    const x1 = ts.timeToCoordinate(z.sdt), x2 = ts.timeToCoordinate(z.edt);
+    const y1 = ps.priceToCoordinate(z.zg), y2 = ps.priceToCoordinate(z.zd);
+    if (x1 == null || x2 == null || y1 == null || y2 == null) return;
+    const X = Math.min(x1, x2), Y = Math.min(y1, y2), W = Math.abs(x2 - x1), H = Math.abs(y2 - y1);
+    ctx.fillStyle = 'rgba(255, 215, 0, 0.13)';
+    ctx.fillRect(X, Y, W, H);
+    ctx.strokeStyle = 'rgba(255, 215, 0, 0.8)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(X, Y, W, H);
+    // ZG/ZD 标签
+    ctx.fillStyle = 'rgba(255, 215, 0, 0.9)';
+    ctx.font = '10px sans-serif';
+    ctx.fillText('ZG ' + z.zg.toFixed(2), X + 2, Math.max(y1 - 3, 8));
+    ctx.fillText('ZD ' + z.zd.toFixed(2), X + 2, y2 + 10);
+  });
+}
 
 async function init() {
   try {
@@ -47,30 +82,47 @@ async function init() {
     if (!r.ok) { alert('股票不存在或加载失败'); return; }
     const data = await r.json();
     document.getElementById('sym').textContent = data.symbol;
-    // 名称从 symbols 列表补 (可选)
+
     candleSeries.setData(data.klines);
+
+    // 成交量 (带涨跌色)
+    const vols = data.klines.map((k, i) => {
+      const prev = i > 0 ? data.klines[i - 1] : null;
+      const up = !prev || k.close >= prev.close;
+      return {
+        time: k.time, value: k.vol,
+        color: up ? 'rgba(38,166,154,0.4)' : 'rgba(239,83,80,0.4)',
+      };
+    });
+    volumeSeries.setData(vols);
+
+    // 笔 → 连续折线 (转折点序列, 去重共享端点)
     if (data.bis && data.bis.length) {
-      // 每笔的端点 → 折线点 (时间→价格)
       const pts = [];
+      let lastTime = null;
       data.bis.forEach(b => {
-        pts.push({ time: b.sdt, value: b.direction === 'Up' ? b.low : b.high });
-        pts.push({ time: b.edt, value: b.direction === 'Up' ? b.high : b.low });
+        const isUp = String(b.direction).includes('向上');
+        const sPrice = isUp ? b.low : b.high;
+        const ePrice = isUp ? b.high : b.low;
+        if (b.sdt !== lastTime) pts.push({ time: b.sdt, value: sPrice });
+        pts.push({ time: b.edt, value: ePrice });
+        lastTime = b.edt;
       });
       biSeries.setData(pts);
     }
-    if (data.zs && data.zs.length) {
-      data.zs.forEach(z => {
-        // 用 createPriceLine 画中枢上下沿 (需要对应时间的价格线) —— v4 简化：画在首日
-        // 更稳妥: 用 series 的 markers? 不用。改用原始 price line 於 chart 上不绑定时间。
-        // 这里简单做法: 用 canvas 不可行，改用 lightweight-charts 的 "createSeriesMarkers" 不可行。
-        // 直接用折线系列绘制中枢矩形上下沿区间段 —— 简化: 画 zg 与 zd 两条贯穿线
-        candleSeries.createPriceLine({ price: z.zg, color:'#ffd700', lineWidth:1, lineStyle:LightweightCharts.LineStyle.Dashed, axisLabelVisible:true, title:'ZG' });
-        candleSeries.createPriceLine({ price: z.zd, color:'#ffd700', lineWidth:1, lineStyle:LightweightCharts.LineStyle.Dashed, axisLabelVisible:true, title:'ZD' });
-      });
-    }
+
+    // 中枢矩形
+    zsData = (data.zs || []).map(z => ({ sdt: z.sdt, edt: z.edt, zg: z.zg, zd: z.zd }));
+    drawZones();
+    chart.timeScale().subscribeVisibleTimeRangeChange(drawZones);
+    window.addEventListener('resize', drawZones);
+
     chart.timeScale().fitContent();
   } catch (e) { console.error(e); }
 }
+
+// 数据更新(如缩放)重绘中枢
+const origSetData = candleSeries.setData.bind(candleSeries);
 init();
 </script>
 </body>

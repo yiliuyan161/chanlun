@@ -74,6 +74,7 @@ def chanlun_json(c: CZSC) -> dict:
         {
             "time": pd.Timestamp(k.dt).strftime("%Y-%m-%d"),
             "open": k.open, "high": k.high, "low": k.low, "close": k.close,
+            "vol": getattr(k, "vol", 0),
         }
         for k in c.bars_raw
     ]
